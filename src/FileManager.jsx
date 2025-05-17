@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 
-export default function App() {
+export default function FileManager() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [userRole, setUserRole] = useState(null);
@@ -9,17 +9,54 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState("");
   const [fileList, setFileList] = useState([]);
   const [message, setMessage] = useState("");
+  const [isCompressed, setIsCompressed] = useState(false);
+
+  // Simple RLE compression algorithm
+  const compressContent = (text) => {
+    if (!text) return "";
+    let compressed = "";
+    let count = 1;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === text[i + 1]) {
+        count++;
+      } else {
+        compressed += count > 1 ? `${count}${text[i]}` : text[i];
+        count = 1;
+      }
+    }
+    return compressed;
+  };
+
+  // Decompress RLE encoded text
+  const decompressContent = (text) => {
+    if (!text) return "";
+    let decompressed = "";
+    let count = "";
+    
+    for (let i = 0; i < text.length; i++) {
+      if (!isNaN(text[i])) {
+        count += text[i];
+      } else {
+        const repeat = count ? parseInt(count) : 1;
+        decompressed += text[i].repeat(repeat);
+        count = "";
+      }
+    }
+    return decompressed;
+  };
 
   useEffect(() => {
-    const keys = Object.keys(localStorage);
+    const keys = Object.keys(localStorage).filter(key => !key.endsWith('_compressed'));
     setFileList(keys);
   }, []);
 
   const login = () => {
     if (username === "admin" && password === "admin123") {
       setUserRole("admin");
+      setMessage("");
     } else if (username === "normal" && password === "user123") {
       setUserRole("normal");
+      setMessage("");
     } else {
       setMessage("Invalid credentials.");
     }
@@ -35,26 +72,33 @@ export default function App() {
 
   const writeFile = () => {
     if (!fileName) return setMessage("Please enter a file name.");
-    localStorage.setItem(fileName, fileContent);
+    const contentToWrite = isCompressed ? compressContent(fileContent) : fileContent;
+    localStorage.setItem(fileName, contentToWrite);
+    localStorage.setItem(`${fileName}_compressed`, isCompressed.toString());
     if (!fileList.includes(fileName)) setFileList([...fileList, fileName]);
-    setMessage(`Content written to '${fileName}'.`);
+    setMessage(`Content written to '${fileName}' ${isCompressed ? '(compressed)' : ''}.`);
   };
 
   const readFile = () => {
     if (!selectedFile) return setMessage("Please select a file to read.");
     const content = localStorage.getItem(selectedFile);
-    setFileContent(content);
+    const wasCompressed = localStorage.getItem(`${selectedFile}_compressed`) === "true";
+    const displayContent = wasCompressed ? decompressContent(content) : content;
+    setFileContent(displayContent);
     setFileName(selectedFile);
-    setMessage(`Reading '${selectedFile}'.`);
+    setIsCompressed(wasCompressed);
+    setMessage(`Reading '${selectedFile}' ${wasCompressed ? '(compressed)' : ''}.`);
   };
 
   const deleteFile = () => {
     if (!selectedFile) return setMessage("Please select a file to delete.");
     localStorage.removeItem(selectedFile);
+    localStorage.removeItem(`${selectedFile}_compressed`);
     setFileList(fileList.filter(f => f !== selectedFile));
     setSelectedFile("");
     setFileContent("");
     setFileName("");
+    setIsCompressed(false);
     setMessage(`File '${selectedFile}' deleted.`);
   };
 
@@ -91,7 +135,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
-      <h1 className="text-2xl font-bold mb-4 text-black" >File Management System</h1>
+      <h1 className="text-2xl font-bold mb-4 text-black">File Management System</h1>
       <p className="mb-2">Logged in as: <strong>{userRole}</strong></p>
 
       <div className="max-w-xl space-y-4">
@@ -105,15 +149,27 @@ export default function App() {
 
         <textarea
           placeholder="Enter file content"
-          className="w-full p-2 border rounded h- text-black"
+          className="w-full p-2 border rounded h-32 text-black"
           value={fileContent}
           onChange={(e) => setFileContent(e.target.value)}
         />
 
         {userRole === "admin" && (
           <>
+            <div className="flex items-center gap-2 mb-2">
+              <input
+                type="checkbox"
+                id="compress"
+                checked={isCompressed}
+                onChange={(e) => setIsCompressed(e.target.checked)}
+                className="form-checkbox h-5 w-5 text-blue-600"
+              />
+              <label htmlFor="compress" className="text-black">Compress file content</label>
+            </div>
             <button onClick={createFile} className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600">Create File</button>
-            <button onClick={writeFile} className="w-full bg-yellow-500 text-white py-2 rounded hover:bg-yellow-600">Write to File</button>
+            <button onClick={writeFile} className="w-full bg-yellow-500 text-white py-2 rounded hover:bg-yellow-600">
+              {isCompressed ? 'Write & Compress File' : 'Write to File'}
+            </button>
             <button onClick={deleteFile} className="w-full bg-red-500 text-white py-2 rounded hover:bg-red-600">Delete File</button>
           </>
         )}
@@ -126,10 +182,18 @@ export default function App() {
           >
             <option value="" className="text-black border border-black">Select a file</option>
             {fileList.map((file, index) => (
-              <option key={index} value={file}>{file}</option>
+              <option key={index} value={file}>
+                {file} {localStorage.getItem(`${file}_compressed`) === "true" ? "(Compressed)" : ""}
+              </option>
             ))}
           </select>
-          <button onClick={readFile} className="w-full mt-2 bg-indigo-500 text-white py-2 rounded hover:bg-indigo-600">Read File</button>
+          <button 
+            onClick={readFile} 
+            className="w-full mt-2 bg-indigo-500 text-white py-2 rounded hover:bg-indigo-600"
+            disabled={userRole === "normal" && !localStorage.getItem(`${selectedFile}_compressed`)}
+          >
+            Read File
+          </button>
         </div>
 
         <button onClick={() => window.location.reload()} className="w-full border py-2 rounded hover:bg-gray-100">Logout</button>
